@@ -38,4 +38,4 @@ SQLAlchemy==2.0.21
 starlette==0.27.0
 trio==0.22.2
 typing_extensions==4.7.1
-uvicorn==0.23.2
+uvicorn==0.22.0
