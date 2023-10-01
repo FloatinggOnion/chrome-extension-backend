@@ -1,4 +1,4 @@
-from fastapi import FastAPI, status, File, UploadFile, HTTPException
+from fastapi import FastAPI, status, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
@@ -23,63 +23,54 @@ app.mount('/', StaticFiles(directory='/', html=True))
 record_path = Path('recordings')
 record_path.mkdir(parents=True, exist_ok=True)
 
+# Buffer for video data
+vid_buff = bytearray()
+
 # Get health
 app.get('/health')
 async def get_health():
     return status.HTTP_200_OK
 
-# Upload video
-@app.post('/upload')
-async def upload_video(video: UploadFile = File(...)):
-    try:
-        with open(record_path / video.filename, "wb") as f:
-            f.write(video.file.read())
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error saving video: {str(e)}")
+
+# Stream video
+@app.post('/stream')
+async def stream_video(chunk: bytes):
+    global vid_buff
+    vid_buff.extend(chunk)
+    
     return {
-        "message": "Video uploaded successfully",
-        "filename": video.filename,
-        "path": str(record_path / video.filename),
-        "code": status.HTTP_201_CREATED
-        }
+        "message": "Chunk received successfully",
+        "code": status.HTTP_202_ACCEPTED
+    }
 
-# Get specific video
-@app.get('/videos/{filename}')
-async def get_video(filename: str):
-    try:
-        video = record_path / filename
-        return {
-            "filename": video.name,
-            "path": str(video),
-            "size": video.stat().st_size
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting video: {str(e)}")
 
-# Get all videos
-@app.get('/videos')
-async def get_videos():
-    videos = []
-    for video in record_path.iterdir():
-        videos.append({
-            "filename": video.name,
-            "path": str(video),
-            "size": video.stat().st_size
-        })
-    return videos
-
-# Delete video
-@app.delete('/videos/{filename}')
-async def delete_video(filename: str):
-    try:
-        (record_path / filename).unlink()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error deleting video: {str(e)}")
+# Define route to save video to disk
+@app.post("/save/")
+async def save_video():
+    global video_buffer
+    with open(record_path / "recorded_video.mp4", "wb") as f:
+        f.write(video_buffer)
+    video_buffer = bytearray()  # Reset buffer after saving
     return {
-        "message": "Video deleted successfully",
-        "filename": filename,
-        "code": status.HTTP_200_OK
+        "message": "Video saved successfully",
+        "code": status.HTTP_201_CREATED,
         }
+
+
+# # Get specific video
+# @app.get('/videos/{filename}')
+# async def get_video(filename: str):
+#     try:
+#         video = record_path / filename
+#         return {
+#             "filename": video.name,
+#             "path": str(video),
+#             "size": video.stat().st_size
+#         }
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Error getting video: {str(e)}")
+
+
 
 
 if __name__ == "__main__":
