@@ -1,7 +1,11 @@
 from fastapi import FastAPI, status, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+
 from pathlib import Path
+
+from concurrent.futures import ThreadPoolExecutor
+import speech_recognition as sr
 
 
 app = FastAPI()
@@ -25,6 +29,12 @@ record_path.mkdir(parents=True, exist_ok=True)
 
 # Buffer for video data
 vid_buff = bytearray()
+
+# Concurrency
+executor = ThreadPoolExecutor()
+
+# Initialize a recognizer
+recognizer = sr.Recognizer()
 
 # Get health
 app.get('/health')
@@ -50,10 +60,32 @@ async def save_video():
     global video_buffer
     with open(record_path / "recorded_video.mp4", "wb") as f:
         f.write(video_buffer)
+
+    audio_path = "recorded_audio.wav"
+    with open(audio_path, "wb") as audio_file:
+        audio_file.write(video_buffer)
+
+
+    def transcribe_audio():
+        nonlocal audio_path
+        with sr.AudioFile(audio_path) as source:
+            audio = recognizer.record(source)
+            try:
+                transcription = recognizer.recognize_google(audio)
+            except sr.UnknownValueError:
+                transcription = "Could not understand audio"
+            except sr.RequestError:
+                transcription = "Could not request results; check network connection"
+        return transcription
+    
+     # Start audio transcription in a separate thread
+    caption = executor.submit(transcribe_audio)
+
     video_buffer = bytearray()  # Reset buffer after saving
     return {
         "message": "Video saved successfully",
         "code": status.HTTP_201_CREATED,
+        "transcription": caption.result()
         }
 
 
