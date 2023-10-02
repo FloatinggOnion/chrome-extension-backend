@@ -1,6 +1,7 @@
-from fastapi import FastAPI, status, HTTPException
+from fastapi import FastAPI, status, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+import asyncio
 
 from pathlib import Path
 
@@ -28,7 +29,7 @@ record_path = Path('recordings')
 record_path.mkdir(parents=True, exist_ok=True)
 
 # Buffer for video data
-vid_buff = bytearray()
+video_buffer = bytearray()
 
 # Concurrency
 executor = ThreadPoolExecutor()
@@ -42,16 +43,62 @@ async def get_health():
     return status.HTTP_200_OK
 
 
-# Stream video
-@app.post('/stream')
-async def stream_video(chunk: bytes):
-    global vid_buff
-    vid_buff.extend(chunk)
+# # Stream video
+# @app.post('/stream')
+# async def stream_video(chunk: bytes):
+#     global video_buffer
+#     video_buffer.extend(chunk)
     
-    return {
-        "message": "Chunk received successfully",
-        "code": status.HTTP_202_ACCEPTED
-    }
+#     return {
+#         "message": "Chunk received successfully",
+#         "code": status.HTTP_202_ACCEPTED
+#     }
+
+
+# Stream video
+@app.websocket('/ws')
+async def stream_video(websocket: WebSocket):
+    global video_buffer
+
+    await websocket.accept()
+
+    while True:
+        await asyncio.sleep(0.1)
+        chunk = await websocket.receive_bytes()
+        video_buffer.extend(chunk)
+        
+
+        with open(record_path / "recorded_video.mp4", "wb") as f:
+            f.write(video_buffer)
+
+        audio_path = "recorded_audio.wav"
+        with open(audio_path, "wb") as audio_file:
+            audio_file.write(video_buffer)
+
+
+        def transcribe_audio():
+            nonlocal audio_path
+            with sr.AudioFile(audio_path) as source:
+                audio = recognizer.record(source)
+                try:
+                    transcription = recognizer.recognize_google(audio)
+                except sr.UnknownValueError:
+                    transcription = "Could not understand audio"
+                except sr.RequestError:
+                    transcription = "Could not request results; check network connection"
+            return transcription
+        
+        # Start audio transcription in a separate thread
+        caption = executor.submit(transcribe_audio)
+
+        await websocket.send_bytes(video_buffer, caption)
+
+        video_buffer = bytearray()  # Reset buffer after saving
+    
+        # return {
+        #     "message": "Chunk received successfully",
+        #     "code": status.HTTP_202_ACCEPTED
+        # }
 
 
 # Define route to save video to disk
